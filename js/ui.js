@@ -41,10 +41,17 @@ let terminalState = {
     onInputCallback: null
 };
 
+function PSC_setInputEnabled(enabled) {
+    const input = $id("#terminal-input");
+    const btn = $id("#terminal-submit-btn");
+    if (input) input.disabled = !enabled;
+    if (btn)   btn.disabled   = !enabled;
+}
+
 function PSC_clearConsole() {
     $id("#terminal-output").innerHTML = "";
     $id("#terminal-input").value = "";
-    $id("#terminal-input").disabled = true;
+    PSC_setInputEnabled(false);
     terminalState.waiting = false;
     terminalState.waitingFor = '';
 }
@@ -93,8 +100,8 @@ function PSC_waitForInput(prompt, callback) {
     terminalState.onInputCallback = callback;
 
     const input = $id("#terminal-input");
-    input.disabled = false;
     input.placeholder = prompt;
+    PSC_setInputEnabled(true);
     input.focus();
 }
 
@@ -106,7 +113,7 @@ function PSC_submitInput() {
 
     input.value = '';
     input.placeholder = 'Enter input here...';
-    input.disabled = true;
+    PSC_setInputEnabled(false);
 
     terminalState.waiting = false;
 
@@ -424,12 +431,9 @@ async function PSC_runProgram() {
     } finally {
         activeRuntime = null;
         PSC_setRunning(false);
-        // Disable input if it was waiting
+        PSC_setInputEnabled(false);
         const input = $id("#terminal-input");
-        if (input && !input.disabled) {
-            input.disabled = true;
-            input.placeholder = 'Enter input here...';
-        }
+        if (input) input.placeholder = 'Enter input here...';
         terminalState.waiting = false;
         terminalState.onInputCallback = null;
     }

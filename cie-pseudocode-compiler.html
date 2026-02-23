@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CIE 9618 Pseudocode Compiler</title>
 
 <style>
@@ -487,6 +488,57 @@ header select option {
     font-style: italic;
 }
 
+/* ============================================
+   SUBMIT BUTTON (terminal input)
+============================================ */
+
+.terminal-submit {
+    padding: 8px 14px;
+    background: #a6e3a1;
+    color: #1e1e2e;
+    border: none;
+    border-radius: 6px;
+    font-family: Consolas, monospace;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    flex-shrink: 0;
+    align-self: flex-end;
+}
+
+.terminal-submit:hover { background: #94e296; }
+
+.terminal-submit:disabled {
+    background: #585b70;
+    color: #45475a;
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* ============================================
+   RESPONSIVE LAYOUT (tablets / small screens)
+============================================ */
+
+@media (max-width: 900px) {
+    .main-container {
+        height: auto;
+    }
+
+    .layout {
+        grid-template-columns: 1fr;
+        height: auto;
+    }
+
+    .col {
+        min-height: 45vh;
+    }
+
+    .panel {
+        border-left: none;
+        border-top: 1px solid #ccc;
+    }
+}
+
 </style>
 
 </head>
@@ -534,6 +586,7 @@ header select option {
             <div class="terminal-input-area">
                 <span class="terminal-prompt">&gt;</span>
                 <textarea id="terminal-input" class="terminal-input" rows="5" placeholder="Enter input here..." disabled></textarea>
+                <button id="terminal-submit-btn" class="terminal-submit" onclick="PSC_submitInput()" disabled>Submit</button>
             </div>
         </div>
 

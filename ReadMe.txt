@@ -1,7 +1,18 @@
-Version 2.0
 
 Please download all files into a folder. You should have a single html file and a folder with multiple js files.
 Then open the cie-pseudocode-compiler.html 
+
+Version History
+
+Version 2.1
+
+Fixes in this version
+
+Changes aimed at improving functionality on tablet devices.
+
+
+
+Version 2.0
 
 Fixes in this version
 
