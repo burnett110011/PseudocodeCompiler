@@ -516,6 +516,31 @@ header select option {
 }
 
 /* ============================================
+   TOUCH DEVICE SUPPORT
+============================================ */
+
+/* Prevent 300ms tap delay and gesture conflicts on touch screens */
+button, select, input, textarea, .tab-button {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Ensure the editor textarea is tappable on iOS even when transparent */
+.psc-textarea {
+    cursor: text;
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* Smooth momentum scrolling on iOS */
+.terminal-output,
+.psc-highlight,
+.psc-textarea,
+.files-list {
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ============================================
    RESPONSIVE LAYOUT (tablets / small screens)
 ============================================ */
 
@@ -529,13 +554,26 @@ header select option {
         height: auto;
     }
 
+    /* Give col an explicit height so the absolutely-positioned
+       textarea inside the editor can use height: 100% correctly */
     .col {
-        min-height: 45vh;
+        min-height: 50vh;
+        height: 50vh;
     }
 
     .panel {
         border-left: none;
         border-top: 1px solid #ccc;
+    }
+
+    /* Make buttons easier to tap on touch screens */
+    .controls button {
+        padding: 12px 16px;
+        font-size: 14px;
+    }
+
+    .tab-button {
+        padding: 14px 20px;
     }
 }
 

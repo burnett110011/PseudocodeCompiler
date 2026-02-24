@@ -83,6 +83,7 @@ class PseudocodeEditor {
         this.textarea.spellcheck = false;
         this.textarea.autocomplete = 'off';
         this.textarea.autocapitalize = 'off';
+        this.textarea.setAttribute('autocorrect', 'off');
         this.textarea.wrap = 'off';
         editorArea.appendChild(this.textarea);
 
@@ -102,6 +103,15 @@ class PseudocodeEditor {
 
         // Tab key handling + auto-indent on Enter
         this.textarea.addEventListener('keydown', (e) => this.handleKeydown(e));
+
+        // On iOS/iPadOS the transparent textarea can miss touch-to-focus.
+        // Tapping anywhere in the editor area explicitly focuses the textarea.
+        this.container.addEventListener('touchstart', (e) => {
+            // Don't steal focus from the textarea itself or the gutter
+            if (e.target !== this.textarea) {
+                this.textarea.focus();
+            }
+        }, { passive: true });
 
         // Initial render
         requestAnimationFrame(() => this.update());

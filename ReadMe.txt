@@ -1,8 +1,12 @@
 
 Please download all files into a folder. You should have a single html file and a folder with multiple js files.
-Then open the cie-pseudocode-compiler.html 
+Then open the cie-pseudocode-compiler.html using a browser.
 
 Version History
+
+Version 2.2
+
+More updates for tablets/phones. 
 
 Version 2.1
 
