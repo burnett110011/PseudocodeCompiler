@@ -630,8 +630,8 @@ class IRGenerator {
     // ------------------------------------------------------------
 
     genCallExpression(node) {
-        // Check if this is a built-in function
-        if (this.builtins.has(node.name)) {
+        // Check if this is a built-in function (case-insensitive)
+        if (this.builtins.has(node.name.toUpperCase())) {
             return this.genBuiltinCall(node);
         }
 
@@ -667,7 +667,8 @@ class IRGenerator {
         const argTemps = node.args.map(arg => this.genExpression(arg));
 
         const t = this.newTemp();
-        this.emit(`${t} = BUILTIN ${node.name} ${argTemps.join(' ')}`);
+        // Always emit builtin name in uppercase so the runtime matches correctly
+        this.emit(`${t} = BUILTIN ${node.name.toUpperCase()} ${argTemps.join(' ')}`);
         return t;
     }
 

@@ -665,9 +665,33 @@ class Parser {
 
             const paramName = this.expect(TokenType.IDENTIFIER, "Expected parameter name").lexeme;
             this.expect(TokenType.COLON, "Expected ':' after parameter name");
-            const paramType = this.advance().type;
 
-            params.push({ name: paramName, type: paramType, mode });
+            // Handle array parameter type: ARRAY[start:end, ...] OF type
+            if (this.peek().type === TokenType.ARRAY) {
+                this.advance(); // consume ARRAY
+                this.expect(TokenType.LBRACKET, "Expected '[' after ARRAY");
+
+                const dimensions = [];
+                const start1 = parseInt(this.expect(TokenType.INTEGER_LITERAL, "Expected start index").lexeme);
+                this.expect(TokenType.COLON, "Expected ':' in array range");
+                const end1 = parseInt(this.expect(TokenType.INTEGER_LITERAL, "Expected end index").lexeme);
+                dimensions.push({ start: start1, end: end1 });
+
+                if (this.match(TokenType.COMMA)) {
+                    const start2 = parseInt(this.expect(TokenType.INTEGER_LITERAL, "Expected start index").lexeme);
+                    this.expect(TokenType.COLON, "Expected ':' in array range");
+                    const end2 = parseInt(this.expect(TokenType.INTEGER_LITERAL, "Expected end index").lexeme);
+                    dimensions.push({ start: start2, end: end2 });
+                }
+
+                this.expect(TokenType.RBRACKET, "Expected ']' after array dimensions");
+                this.expect(TokenType.OF, "Expected OF after array dimensions");
+                const elemType = this.advance().type;
+                params.push({ name: paramName, type: elemType, mode, arrayDimensions: dimensions });
+            } else {
+                const paramType = this.advance().type;
+                params.push({ name: paramName, type: paramType, mode });
+            }
         } while (this.match(TokenType.COMMA));
 
         return params;

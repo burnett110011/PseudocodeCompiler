@@ -435,6 +435,10 @@ class Runtime {
         // -----------------------------------------------------------------
         if (parts[0] === "CALL") {
             const label = parts[1];
+            if (!(label in this.labels)) {
+                const name = label.replace(/^(FUNC_|PROC_)/, "");
+                throw new Error(`Undefined function or procedure: '${name}'. Check spelling and capitalisation.`);
+            }
             this.callStack.push(this.pc + 1); // return address
             this.pc = this.labels[label];
             return true;

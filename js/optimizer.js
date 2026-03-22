@@ -39,6 +39,7 @@ class Optimizer {
                     case "DIV": return `${parts[0]} = ${Math.trunc(a / b)}`; // Integer division
                     case "MOD": return `${parts[0]} = ${a % b}`;     // Modulo
                     case "^": return `${parts[0]} = ${Math.pow(a, b)}`;
+                    default: return instr; // non-arithmetic op (comparisons etc.) — leave as-is
                 }
             }
         }

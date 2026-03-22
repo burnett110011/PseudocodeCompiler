@@ -568,7 +568,7 @@ class SemanticAnalyzer {
 
         // Declare parameters in local scope
         for (const param of node.params) {
-            this.symbols.declare(param.name, param.type);
+            this.symbols.declare(param.name, param.type, param.arrayDimensions || null);
             this.symbols.assign(param.name); // params are considered assigned
         }
 
@@ -591,7 +591,7 @@ class SemanticAnalyzer {
 
         // Declare parameters in local scope
         for (const param of node.params) {
-            this.symbols.declare(param.name, param.type);
+            this.symbols.declare(param.name, param.type, param.arrayDimensions || null);
             this.symbols.assign(param.name);
         }
 
@@ -613,9 +613,10 @@ class SemanticAnalyzer {
             this.checkExpression(arg);
         }
 
-        // Check built-in functions
-        if (this.builtins.has(node.name)) {
-            const builtin = this.builtins.get(node.name);
+        // Check built-in functions (case-insensitive)
+        const upperName = node.name.toUpperCase();
+        if (this.builtins.has(upperName)) {
+            const builtin = this.builtins.get(upperName);
             if (node.args.length !== builtin.argCount) {
                 throw new SemanticError(
                     `Built-in '${node.name}' expects ${builtin.argCount} argument(s), got ${node.args.length}.`
@@ -675,9 +676,9 @@ class SemanticAnalyzer {
             case "Call":
                 // Function call in expression context — check args and validate
                 this.checkCall(node);
-                // Check built-in functions first
-                if (this.builtins.has(node.name)) {
-                    return this.builtins.get(node.name).returnType;
+                // Check built-in functions first (case-insensitive)
+                if (this.builtins.has(node.name.toUpperCase())) {
+                    return this.builtins.get(node.name.toUpperCase()).returnType;
                 }
                 // Look up return type from user-defined functions
                 if (this.functions.has(node.name)) {
