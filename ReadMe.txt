@@ -39,3 +39,11 @@ Fixes in this version
 3. Type for records improved.
 4. Stricter type controls, e.g. loop variables must be integers.
 
+Version 3.0
+
+Fixes to editor bugs.
+Allows for multiple variables to be defined on a single line
+Undo and Redo implemented
+Cosmetic changes to UI
+Improved syntax error reporting
+
