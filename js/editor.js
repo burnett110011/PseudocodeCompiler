@@ -14,7 +14,18 @@ class PseudocodeEditor {
 
     constructor(containerId) {
         this.container = document.getElementById(containerId);
-        this.errorLine = -1;
+        this.errorLines = new Set(); // 0-based line indexes to flag
+
+        // Undo/redo history: a stack of {value, start, end} snapshots.
+        // Rapid consecutive edits (plain typing) are coalesced into a single
+        // undo step; structural edits (Tab/Enter/Backspace) always start a new one.
+        this.history = [];
+        this.historyIndex = -1;
+        this.isUndoRedo = false;
+        this.lastRecordTime = 0;
+        this.groupTimeoutMs = 500;
+        this.maxHistory = 500;
+        this.onHistoryChange = null; // optional callback(editor) for UI hookup
 
         // CIE pseudocode language definitions
         this.keywords = new Set([
@@ -43,15 +54,22 @@ class PseudocodeEditor {
 
         // Indentation rules
         this.indentKeywords = new Set([
-            "IF", "WHILE", "FOR", "REPEAT", "CASE", "PROCEDURE", "FUNCTION", "OTHERWISE", "TYPE"
+            "IF", "WHILE", "FOR", "REPEAT", "CASE", "PROCEDURE", "FUNCTION", "TYPE"
         ]);
         this.dedentKeywords = new Set([
             "ENDIF", "ENDWHILE", "NEXT", "UNTIL", "ENDCASE",
-            "ENDPROCEDURE", "ENDFUNCTION", "ENDTYPE", "ELSE", "OTHERWISE"
+            "ENDPROCEDURE", "ENDFUNCTION", "ENDTYPE", "ELSE"
         ]);
+        // ELSE dedents itself back to its IF's level, but (unlike a true closer
+        // such as ENDIF) its own body is then indented again, so the line after
+        // it should return to the pre-dedent level.
+        // OTHERWISE is deliberately in neither set: it sits at the same level as
+        // the CASE values and its body follows on the same line.
+        this.reopenKeywords = new Set(["ELSE"]);
 
         this.build();
         this.attachEvents();
+        this.resetHistory();
     }
 
     // ------------------------------------------
@@ -96,7 +114,10 @@ class PseudocodeEditor {
 
     attachEvents() {
         // Update highlighting on input
-        this.textarea.addEventListener('input', () => this.update());
+        this.textarea.addEventListener('input', () => {
+            this.update();
+            this.pushHistory();
+        });
 
         // Sync scroll
         this.textarea.addEventListener('scroll', () => this.syncScroll());
@@ -113,12 +134,43 @@ class PseudocodeEditor {
             }
         }, { passive: true });
 
-        // Initial render
-        requestAnimationFrame(() => this.update());
+        // Other ways the text can change without a reliable 'input' event
+        // (drag-drop, IME, cut/paste, browser-native undo, autofill).
+        for (const evt of ['change', 'paste', 'cut', 'drop', 'compositionend', 'keyup', 'select']) {
+            this.textarea.addEventListener(evt, () => this.ensureSynced());
+        }
+        // Drop/paste/cut apply their change after the event fires
+        for (const evt of ['paste', 'cut', 'drop']) {
+            this.textarea.addEventListener(evt, () => setTimeout(() => this.ensureSynced(), 0));
+        }
+
+        // Safety net: if the overlay ever drifts from the textarea, repaint it.
+        // Comparing two strings per frame is negligible.
+        const watch = () => {
+            this.ensureSynced();
+            requestAnimationFrame(watch);
+        };
+        requestAnimationFrame(watch);
+    }
+
+    // Repaint the highlight layer if it no longer reflects the textarea
+    ensureSynced() {
+        if (this.renderedValue !== this.textarea.value) {
+            this.update();
+            this.pushHistory();
+        }
     }
 
     handleKeydown(e) {
-        if (e.key === 'Tab') {
+        const mod = e.ctrlKey || e.metaKey;
+
+        if (mod && !e.shiftKey && e.key.toLowerCase() === 'z') {
+            e.preventDefault();
+            this.undo();
+        } else if (mod && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+            e.preventDefault();
+            this.redo();
+        } else if (e.key === 'Tab') {
             e.preventDefault();
             this.handleTab(e.shiftKey);
         } else if (e.key === 'Enter') {
@@ -155,6 +207,7 @@ class PseudocodeEditor {
         }
 
         this.update();
+        this.pushHistory(true);
     }
 
     handleEnter() {
@@ -174,32 +227,28 @@ class PseudocodeEditor {
         const trimmed = currentLine.trim().toUpperCase();
         const firstWord = trimmed.split(/\s/)[0];
 
-        if (this.dedentKeywords.has(firstWord)) {
-            // Line is a closing keyword — next line stays at the same (already-reduced) indent
-            // but we also auto-reduce the current line's indent by one level if it's over-indented
-            if (indent.length >= 4) {
-                // Rewrite the current line with one less indent level
-                const correctIndent = indent.substring(4);
-                const rest = value.substring(lineStart);           // from line start to EOF
-                const lineEnd = rest.indexOf('\n');
-                const restOfLine = lineEnd === -1 ? rest : rest.substring(0, lineEnd);
-                const afterLine = lineEnd === -1 ? '' : rest.substring(lineEnd);
+        if (this.dedentKeywords.has(firstWord) && indent.length >= 4) {
+            // Closing keyword — dedent the current line by one level, then
+            // actually insert a new line at that same (reduced) level.
+            const correctIndent = indent.substring(4);
+            const lineEndRel = value.indexOf('\n', end);
+            const lineEnd = lineEndRel === -1 ? value.length : lineEndRel;
 
-                const newLineContent = correctIndent + restOfLine.trimStart();
-                this.textarea.value = value.substring(0, lineStart) + newLineContent + afterLine;
+            const textBeforeCursor = value.substring(lineStart, start).trimStart();
+            const textAfterCursor = value.substring(end, lineEnd);
+            const restOfFile = value.substring(lineEnd);
 
-                // Recalculate start position after rewrite
-                const newStart = lineStart + newLineContent.length;
-                indent = correctIndent;
+            const newLineIndent = this.reopenKeywords.has(firstWord) ? indent : correctIndent;
+            const newCurrentLine = correctIndent + textBeforeCursor;
+            const insertion = '\n' + newLineIndent;
 
-                const insertion = '\n' + indent;
-                const finalPos = lineStart + newLineContent.length + insertion.length;
-                this.textarea.value = value.substring(0, lineStart) + newLineContent +
-                    insertion + afterLine.substring(afterLine.startsWith('\n') ? 1 : 0);
-                this.textarea.selectionStart = this.textarea.selectionEnd = finalPos;
-                this.update();
-                return;
-            }
+            this.textarea.value = value.substring(0, lineStart) + newCurrentLine +
+                insertion + textAfterCursor + restOfFile;
+            this.textarea.selectionStart = this.textarea.selectionEnd =
+                lineStart + newCurrentLine.length + insertion.length;
+            this.update();
+            this.pushHistory(true);
+            return;
         } else if (this.indentKeywords.has(firstWord) ||
                    trimmed.endsWith('THEN') || trimmed.endsWith('DO') || trimmed.endsWith('ELSE')) {
             // Opening keyword — indent the next line one level deeper
@@ -213,6 +262,7 @@ class PseudocodeEditor {
         this.textarea.selectionStart = this.textarea.selectionEnd = newPos;
 
         this.update();
+        this.pushHistory(true);
     }
 
     handleBackspace() {
@@ -241,7 +291,93 @@ class PseudocodeEditor {
         this.textarea.value = value.substring(0, start - remove) + value.substring(start);
         this.textarea.selectionStart = this.textarea.selectionEnd = start - remove;
         this.update();
+        this.pushHistory(true);
         return true;    // tell caller to preventDefault
+    }
+
+    // ------------------------------------------
+    // Undo / redo history
+    // ------------------------------------------
+
+    snapshot() {
+        return {
+            value: this.textarea.value,
+            start: this.textarea.selectionStart,
+            end: this.textarea.selectionEnd
+        };
+    }
+
+    resetHistory() {
+        this.history = [this.snapshot()];
+        this.historyIndex = 0;
+        this.lastRecordTime = 0;
+        this.notifyHistoryChange();
+    }
+
+    // Records the current textarea state as an undo step. Consecutive calls
+    // within groupTimeoutMs are coalesced into the same step (so a burst of
+    // typing undoes as one unit); pass forceNewGroup for discrete edits
+    // (Tab/Enter/Backspace) that should always be their own undo step.
+    pushHistory(forceNewGroup = false) {
+        if (this.isUndoRedo) return;
+
+        const snap = this.snapshot();
+        const last = this.history[this.historyIndex];
+        if (last && last.value === snap.value) return; // nothing actually changed
+
+        const now = Date.now();
+        const withinGroup = !forceNewGroup && last && (now - this.lastRecordTime) < this.groupTimeoutMs;
+
+        if (withinGroup) {
+            this.history[this.historyIndex] = snap;
+        } else {
+            this.history = this.history.slice(0, this.historyIndex + 1);
+            this.history.push(snap);
+            this.historyIndex++;
+            if (this.history.length > this.maxHistory) {
+                this.history.shift();
+                this.historyIndex--;
+            }
+        }
+
+        this.lastRecordTime = now;
+        this.notifyHistoryChange();
+    }
+
+    notifyHistoryChange() {
+        if (this.onHistoryChange) this.onHistoryChange(this);
+    }
+
+    canUndo() {
+        return this.historyIndex > 0;
+    }
+
+    canRedo() {
+        return this.historyIndex < this.history.length - 1;
+    }
+
+    restoreSnapshot(entry) {
+        this.isUndoRedo = true;
+        this.textarea.value = entry.value;
+        this.textarea.selectionStart = entry.start;
+        this.textarea.selectionEnd = entry.end;
+        this.update();
+        this.isUndoRedo = false;
+        this.lastRecordTime = 0; // next edit should start a fresh undo group
+    }
+
+    undo() {
+        if (!this.canUndo()) return;
+        this.historyIndex--;
+        this.restoreSnapshot(this.history[this.historyIndex]);
+        this.notifyHistoryChange();
+    }
+
+    redo() {
+        if (!this.canRedo()) return;
+        this.historyIndex++;
+        this.restoreSnapshot(this.history[this.historyIndex]);
+        this.notifyHistoryChange();
     }
 
     // ------------------------------------------
@@ -364,18 +500,21 @@ class PseudocodeEditor {
         const parts = [];
         for (let i = 0; i < lines.length; i++) {
             const highlighted = this.highlightLine(lines[i]);
-            if (i === this.errorLine) {
+            if (this.errorLines.has(i)) {
                 parts.push('<span class="psc-error-line">' + highlighted + '</span>');
             } else {
                 parts.push(highlighted);
             }
         }
-        this.highlight.innerHTML = parts.join('\n');
+        // Trailing newline keeps the pre's scroll height equal to the textarea's
+        // when the code ends in an empty line.
+        this.highlight.innerHTML = parts.join('\n') + '\n';
+        this.renderedValue = code;
 
         // Update line numbers
         let gutterHTML = '';
         for (let i = 1; i <= lines.length; i++) {
-            const errorClass = (i - 1 === this.errorLine) ? ' psc-gutter-error' : '';
+            const errorClass = this.errorLines.has(i - 1) ? ' psc-gutter-error' : '';
             gutterHTML += '<div class="psc-line-number' + errorClass + '">' + i + '</div>';
         }
         this.gutter.innerHTML = gutterHTML;
@@ -403,16 +542,23 @@ class PseudocodeEditor {
     setValue(code) {
         this.textarea.value = code;
         this.update();
+        this.resetHistory();
     }
 
     setErrorLine(lineNumber) {
         // lineNumber is 1-based, -1 to clear
-        this.errorLine = lineNumber > 0 ? lineNumber - 1 : -1;
+        this.errorLines = lineNumber > 0 ? new Set([lineNumber - 1]) : new Set();
+        this.update();
+    }
+
+    // Flag several lines at once (1-based line numbers)
+    setErrorLines(lineNumbers) {
+        this.errorLines = new Set(lineNumbers.filter(n => n > 0).map(n => n - 1));
         this.update();
     }
 
     clearError() {
-        this.errorLine = -1;
+        this.errorLines = new Set();
         this.update();
     }
 

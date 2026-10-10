@@ -7,7 +7,6 @@
 //   - #editor-container       (div for the syntax-highlighted editor)
 //   - #terminal-output        (div for console output)
 //   - #terminal-input         (textarea for user input, 5 rows)
-//   - #ir-code                (pre for IR code display)
 //   - #example-select         (select for example programs)
 //
 // Buttons call:
@@ -58,7 +57,6 @@ function PSC_clearConsole() {
 
 function PSC_clearOutput() {
     PSC_clearConsole();
-    $id("#ir-code").textContent = "";
     if (pscEditor) pscEditor.clearError();
 }
 
@@ -74,14 +72,11 @@ function PSC_switchTab(tab, btn) {
     // Show/hide panels
     $id("#pane-terminal").style.display = 'none';
     $id("#pane-files").style.display   = 'none';
-    $id("#pane-ir").style.display      = 'none';
 
     if (tab === 'terminal') {
         $id("#pane-terminal").style.display = 'flex';
     } else if (tab === 'files') {
         $id("#pane-files").style.display = 'flex';
-    } else if (tab === 'ir') {
-        $id("#pane-ir").style.display = 'block';
     }
 }
 
@@ -161,6 +156,7 @@ function PSC_populateExamples() {
 document.addEventListener('DOMContentLoaded', function() {
     // Create the syntax-highlighted editor
     pscEditor = new PseudocodeEditor('editor-container');
+    pscEditor.onHistoryChange = PSC_updateUndoRedoButtons;
 
     // Set default program
     pscEditor.setValue(
@@ -190,6 +186,29 @@ OUTPUT "Hello, " & Name & "!"`
     PSC_populateExamples();
 });
 
+
+// ------------------------------------------------------------
+// UNDO / REDO
+// ------------------------------------------------------------
+
+function PSC_undo() {
+    if (!pscEditor) return;
+    pscEditor.undo();
+    pscEditor.focus();
+}
+
+function PSC_redo() {
+    if (!pscEditor) return;
+    pscEditor.redo();
+    pscEditor.focus();
+}
+
+function PSC_updateUndoRedoButtons() {
+    const undoBtn = $id('#btn-undo');
+    const redoBtn = $id('#btn-redo');
+    if (undoBtn) undoBtn.disabled = !(pscEditor && pscEditor.canUndo());
+    if (redoBtn) redoBtn.disabled = !(pscEditor && pscEditor.canRedo());
+}
 
 // ------------------------------------------------------------
 // FILE SAVE / OPEN
@@ -369,9 +388,6 @@ async function PSC_runProgram() {
         const compiler = new Compiler({ optimize: true, debug: false });
         const { ir } = compiler.compile(source);
 
-        // Show IR in IR tab
-        $id("#ir-code").textContent = ir.join('\n');
-
         // Create runtime with terminal support
         const runtime = new Runtime(ir);
         activeRuntime = runtime;
@@ -413,7 +429,19 @@ async function PSC_runProgram() {
 
     } catch (err) {
         PSC_writeTerminal('', 'terminal-error');
-        PSC_writeTerminal(err.message, 'terminal-error');
+        if (err.diagnostics) {
+            // Compile-time problems: show each with its source line and a caret
+            const sourceLines = source.split('\n');
+            err.diagnostics.forEach((d, i) => {
+                if (i > 0) PSC_writeTerminal('', 'terminal-error');
+                formatDiagnosticLines(d, sourceLines).forEach(l => PSC_writeTerminal(l, 'terminal-error'));
+            });
+            PSC_writeTerminal('', 'terminal-error');
+            const n = err.diagnostics.length;
+            PSC_writeTerminal(`${n} error${n === 1 ? '' : 's'} found - nothing was run.`, 'terminal-error');
+        } else {
+            PSC_writeTerminal(err.message, 'terminal-error');
+        }
         console.error(err);
 
         // Still sync any files written before the error
@@ -423,9 +451,13 @@ async function PSC_runProgram() {
 
         // Try to highlight the error line in the editor
         if (pscEditor) {
-            const lineMatch = err.message.match(/line (\d+)/i);
-            if (lineMatch) {
-                pscEditor.setErrorLine(parseInt(lineMatch[1]));
+            if (err.diagnostics) {
+                pscEditor.setErrorLines(err.diagnostics.map(d => d.line).filter(Boolean));
+            } else {
+                const lineMatch = err.message.match(/line (\d+)/i);
+                if (lineMatch) {
+                    pscEditor.setErrorLine(parseInt(lineMatch[1]));
+                }
             }
         }
     } finally {

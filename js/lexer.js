@@ -10,6 +10,14 @@ class Lexer {
         this.line = 1;
         this.col = 1;
 
+        // Start of the token currently being read, so every token reports where
+        // it BEGINS (not where the lexer happened to stop).
+        this.tokLine = 1;
+        this.tokCol = 1;
+        this.tokStart = 0;
+
+        this.errors = [];
+
         this.keywords = new Map([
             ["DECLARE", TokenType.DECLARE],
             ["CONSTANT", TokenType.CONSTANT],
@@ -82,8 +90,13 @@ class Lexer {
         return ch;
     }
 
-    token(type, lexeme) {
-        return { type, lexeme, line: this.line, col: this.col };
+    token(type, lexeme, length) {
+        const len = length || (this.pos - this.tokStart) || String(lexeme).length || 1;
+        return { type, lexeme, line: this.tokLine, col: this.tokCol, length: len };
+    }
+
+    error(message, hint, line = this.tokLine, col = this.tokCol, length = 1) {
+        this.errors.push({ phase: "lexical", message, line, col, length, hint });
     }
 
     skipWhitespace() {
@@ -144,21 +157,24 @@ class Lexer {
         this.advance(); // opening quote
 
         let out = "";
+        let closed = false;
 
         while (true) {
             const c = this.peek();
 
-            if (c === null) break;
+            // Strings cannot run past the end of the line
+            if (c === null || c === "\n") break;
 
             if (c === quoteChar) {
                 this.advance();
+                closed = true;
                 break;
             }
 
             if (c === "\\") {
                 this.advance();
                 const next = this.peek();
-                if (next !== null) {
+                if (next !== null && next !== "\n") {
                     out += next;
                     this.advance();
                 }
@@ -167,7 +183,36 @@ class Lexer {
             }
         }
 
-        return this.token(TokenType.STRING_LITERAL, out);
+        if (!closed) {
+            this.error(
+                `Unterminated string: missing closing ${quoteChar} before the end of the line`,
+                `add a ${quoteChar} at the end of the text`,
+                this.tokLine, this.tokCol, this.pos - this.tokStart
+            );
+        }
+
+        const tok = this.token(TokenType.STRING_LITERAL, out);
+        tok.quote = quoteChar;
+        return tok;
+    }
+
+    charHint(c) {
+        const hints = {
+            "!": "use <> for 'not equal' and NOT for 'not'",
+            ";": "statements are separated by new lines, not semicolons",
+            "{": "use ( ) for grouping and [ ] for array indices",
+            "}": "use ( ) for grouping and [ ] for array indices",
+            "%": "use MOD for the remainder",
+            "\\": "a backslash is only valid inside a string",
+            "`": "use \" or ' to quote text",
+            "“": "this is a 'smart' quote; use a plain \" instead",
+            "”": "this is a 'smart' quote; use a plain \" instead",
+            "‘": "this is a 'smart' quote; use a plain ' instead",
+            "’": "this is a 'smart' quote; use a plain ' instead",
+            "–": "this looks like an en dash; use a plain - instead",
+            "←": "use <- for assignment (typed as less-than then minus)"
+        };
+        return hints[c];
     }
 
     // ---------------------------- MAIN TOKENIZER ----------------------------
@@ -182,6 +227,10 @@ class Lexer {
 
             const c = this.peek();
             if (c === null) break;
+
+            this.tokLine = this.line;
+            this.tokCol = this.col;
+            this.tokStart = this.pos;
 
             // Strings (double or single quotes)
             if (c === '"' || c === "'") {
@@ -261,10 +310,18 @@ class Lexer {
                 continue;
             }
 
-            throw new Error(`Unknown character '${c}' at ${this.line}:${this.col}`);
+            this.error(`Unexpected character '${c}'`, this.charHint(c));
+            this.advance();
         }
 
-        tokens.push(this.token(TokenType.EOF, ""));
+        this.tokLine = this.line;
+        this.tokCol = this.col;
+        this.tokStart = this.pos;
+        tokens.push(this.token(TokenType.EOF, "", 1));
+
+        if (this.errors.length > 0) {
+            throw new CompileError(this.errors, this.text);
+        }
         return tokens;
     }
 }
